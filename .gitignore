@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+*.mov
+*.mp4
+*.webm
+*.gpx
+!assets/*
