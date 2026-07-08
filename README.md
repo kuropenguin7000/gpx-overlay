@@ -1,16 +1,15 @@
 # gpx-overlay
 
-Animated cycling telemetry overlay generator for CapCut (and any editor that
-supports transparent video). Feed it a GPX ride recording and a time range, get a
+Animated cycling telemetry overlay generator. Feed it a GPX ride recording and a time range, get a
 **transparent .mov** you drop straight on top of your footage — no chroma key,
 no keying artifacts.
 
 ## Result
 
-The overlay composited over real ride footage in CapCut:
+The overlay composited over real ride footage:
 
 <p align="center">
-  <img src="assets/result-example.jpg" width="360" alt="Overlay composited over cycling POV footage">
+  <img src="assets/result-example.png" width="360" alt="Overlay composited over cycling POV footage">
 </p>
 
 Currently there is **one design** (shown above). More designs will be added later,
