@@ -189,10 +189,50 @@ F_KMH = font(30, 600, 100)
 F_BPM = font(58, 520, 92)
 F_BPMU = font(24, 600, 100)
 F_DATE = font(30, 520, 96)
+# engagement-overlay fonts (hook caption, day badge, end card)
+F_HOOK = font(48, 640, 100)
+F_DAYB = font(34, 700, 100)
+F_ECT = font(40, 700, 100)
+F_ECV = font(66, 600, 92)
+F_ECL = font(24, 640, 100)
+
+# on-screen labels per --lang
+LABELS = {
+    "en": {"day": "DAY", "summary": "RIDE SUMMARY",
+           "dist": "DISTANCE KM", "spd": "MAX KM/H",
+           "climb": "CLIMBED M", "hr": "MAX BPM"},
+    "id": {"day": "HARI", "summary": "RINGKASAN",
+           "dist": "JARAK KM", "spd": "MAKS KM/J",
+           "climb": "TANJAKAN M", "hr": "DETAK MAKS"},
+}
 
 def text_sh(dr, xy, s, f, fill=WHITE, anchor="la"):
     dr.text((xy[0] + 2, xy[1] + 3), s, font=f, fill=SHADOW, anchor=anchor)
     dr.text(xy, s, font=f, fill=fill, anchor=anchor)
+
+def composite_overlay(img, overlay):
+    """Alpha-composite an RGBA overlay onto img, preserving img's mode."""
+    if img.mode == "RGBA":
+        return Image.alpha_composite(img, overlay)
+    return Image.alpha_composite(img.convert("RGBA"), overlay).convert("RGB")
+
+_last_bar = [0.0]
+
+def progress_bar(done, total, t_start, width=32):
+    """In-place terminal progress bar; throttled to ~10 updates/sec."""
+    now = time.time()
+    if done < total and now - _last_bar[0] < 0.1:
+        return
+    _last_bar[0] = now
+    frac = done / total
+    filled = int(width * frac)
+    bar = "#" * filled + "-" * (width - filled)
+    el = now - t_start
+    fps = done / el if el > 0 else 0
+    eta = (total - done) / fps if fps > 0 else 0
+    sys.stdout.write(f"\r[{bar}] {frac*100:5.1f}%  {done}/{total}  "
+                     f"{fps:4.1f} fps  ETA {eta:4.0f}s ")
+    sys.stdout.flush()
 
 # ---------------------------------------------------------------- static pieces
 def draw_ring_base(dr, c, r_disc, r_ring, aw, s):
@@ -340,6 +380,19 @@ def main():
     ap.add_argument("--tz", type=float, default=7.0, help="UTC offset hours (default WIB +7)")
     ap.add_argument("--weight", type=float, default=70.0, help="rider kg for calories")
     ap.add_argument("--age", type=float, default=30.0, help="rider age for calories")
+    # engagement extras (all opt-in; default output is unchanged)
+    ap.add_argument("--caption", default=None,
+                    help="hook text shown top-center at the start of the clip")
+    ap.add_argument("--caption-dur", type=float, default=3.0,
+                    help="seconds the hook caption stays on screen")
+    ap.add_argument("--day", type=int, default=None,
+                    help="show a DAY N series badge (top-right)")
+    ap.add_argument("--endcard", action="store_true",
+                    help="show an auto stat summary card over the final seconds")
+    ap.add_argument("--endcard-dur", type=float, default=3.0,
+                    help="seconds the end card is on screen")
+    ap.add_argument("--lang", choices=["en", "id"], default="en",
+                    help="language for badge/end-card labels")
     args = ap.parse_args()
 
     global ALPHA
@@ -395,6 +448,62 @@ def main():
         vw = dr.textlength(val, font=F_VAL)
         text_sh(dr, (x + vw + 10, y + 26), unit, F_UNIT, fill=GRAY)
 
+    # ---- engagement overlays (opt-in) ----
+    L = LABELS[args.lang]
+    clip_dur = nframes / FPS
+    ec = {"dist": (fdist[-1] - fdist[0]) / 1000, "spd": fspd.max(),
+          "climb": fclimb[-1] - fclimb[0], "hr": fhr.max()}
+
+    def caption_alpha(ct):
+        if not args.caption or ct > args.caption_dur:
+            return 0.0
+        if ct < 0.4:
+            return ct / 0.4
+        if ct > args.caption_dur - 0.5:
+            return max(0.0, (args.caption_dur - ct) / 0.5)
+        return 1.0
+
+    def endcard_alpha(ct):
+        if not args.endcard:
+            return 0.0
+        start = clip_dur - args.endcard_dur
+        return 0.0 if ct < start else min(1.0, (ct - start) / 0.5)
+
+    def draw_hook(od, a):
+        f = F_HOOK
+        tw = od.textlength(args.caption, font=f)
+        cx, cy = W / 2, H / 2 - 30           # screen center
+        px, py = 34, 20
+        od.rounded_rectangle([cx - tw / 2 - px, cy - py, cx + tw / 2 + px, cy + 58 + py],
+                             radius=20, fill=(10, 13, 17, int(150 * a)))
+        od.text((cx + 2, cy + 3), args.caption, font=f, anchor="ma", fill=(10, 13, 17, int(200 * a)))
+        od.text((cx, cy), args.caption, font=f, anchor="ma", fill=(255, 255, 255, int(255 * a)))
+
+    def draw_day(od):
+        txt = f"{L['day']} {args.day}"
+        f = F_DAYB
+        tw = od.textlength(txt, font=f)
+        x1, cy = W - 60, 168
+        od.rounded_rectangle([x1 - tw - 40, cy - 22, x1, cy + 34], radius=16,
+                             fill=(10, 13, 17, 140))
+        od.rounded_rectangle([x1 - tw - 40, cy - 22, x1 - tw - 34, cy + 34], radius=3, fill=TEAL + (255,))
+        od.text((x1 - 20, cy + 6), txt, font=f, anchor="rm", fill=(255, 255, 255, 255))
+
+    def draw_endcard(od, a):
+        cx = W / 2
+        A = lambda v: int(v * a)
+        od.rounded_rectangle([cx - 320, 640, cx + 320, 1180], radius=44,
+                             fill=(10, 13, 17, A(190)))
+        od.text((cx, 706), L["summary"], font=F_ECT, anchor="mm", fill=(255, 255, 255, A(255)))
+        od.rounded_rectangle([cx - 44, 744, cx + 44, 750], radius=3, fill=TEAL + (A(255),))
+        cells = [(-150, 850, f"{ec['dist']:.1f}", L["dist"]),
+                 (150, 850, f"{ec['spd']:.0f}", L["spd"]),
+                 (-150, 1040, f"{ec['climb']:.0f}", L["climb"]),
+                 (150, 1040, f"{ec['hr']:.0f}", L["hr"])]
+        for dx, y, val, lab in cells:
+            od.text((cx + dx, y), val, font=F_ECV, anchor="mm", fill=(255, 255, 255, A(255)))
+            od.text((cx + dx, y + 58), lab, font=F_ECL, anchor="mm", fill=GRAY + (A(255),))
+
     def render_frame(i):
         img = Image.fromarray(base.copy())
         dr = ImageDraw.Draw(img)
@@ -449,6 +558,21 @@ def main():
         text_sh(dr, (MX, DATE_Y),
                 f"{clk // 3600 % 24:02d}:{clk % 3600 // 60:02d}:{clk % 60:02d}",
                 F_DATE, fill=GRAY)
+
+        # opt-in engagement overlays, composited once on top
+        if args.caption or args.day is not None or args.endcard:
+            ct = i / FPS
+            ca, ea = caption_alpha(ct), endcard_alpha(ct)
+            if ca > 0 or ea > 0 or args.day is not None:
+                ov = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+                od = ImageDraw.Draw(ov)
+                if ca > 0:
+                    draw_hook(od, ca)
+                if args.day is not None:
+                    draw_day(od)
+                if ea > 0:
+                    draw_endcard(od, ea)
+                img = composite_overlay(img, ov)
         return img
 
     if args.png:
@@ -517,13 +641,11 @@ def main():
         if i < INTRO_F:
             img = with_intro(img, i)
         proc.stdin.write(img.tobytes())
-        if i % 1800 == 0 and i:
-            el = time.time() - t_start
-            print(f"frame {i}/{nframes}  {i/el:.1f} fps  "
-                  f"ETA {(el/i*(nframes-i))/60:.1f} min", flush=True)
+        progress_bar(i + 1, nframes, t_start)
     proc.stdin.close()
     proc.wait()
     el = time.time() - t_start
+    sys.stdout.write("\n")
     print(f"done: {nframes} frames in {el/60:.1f} min ({nframes/el:.1f} fps) -> {out}")
 
 if __name__ == "__main__":

@@ -58,6 +58,26 @@ More options:
 | `--weight 70 --age 30` | calorie-estimate inputs (Keytel HR formula) |
 | `--no-intro` | skip the slide-in intro (it only plays when a clip starts at ride second 0) |
 
+### Engagement extras (opt-in, for social clips)
+
+All off by default — the base overlay is unchanged unless you pass these:
+
+| Flag | Meaning |
+|---|---|
+| `--caption "POV: 5:53am ride to work"` | hook text, top-center, first few seconds |
+| `--caption-dur 3` | how long the hook stays (seconds) |
+| `--day 47` | a `DAY 47` series badge (top-right) for daily uploads |
+| `--endcard` | auto stat-summary card over the final seconds (distance, max km/h, climbed, max bpm) |
+| `--endcard-dur 3` | how long the end card shows (seconds) |
+| `--lang en\|id` | label language for the badge / end card |
+
+Example daily-series clip:
+
+```
+python render_overlay.py --gpx ride.gpx --start 05:53:00 --end 05:54:00 \
+  --caption "POV: morning ride in Yogyakarta" --day 47 --endcard
+```
+
 ### Using in CapCut
 
 Import the `.mov`, place it on the track **above** your footage — the background is
