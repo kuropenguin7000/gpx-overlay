@@ -12,21 +12,33 @@ The overlay composited over real ride footage:
   <img src="assets/result-example.png" width="360" alt="Overlay composited over cycling POV footage">
 </p>
 
-Currently there is **one design** (shown above). More designs will be added later,
-each as its own `render_overlay_<name>.py` beside the default one.
+Everything is animated and synced to the GPX clock. Output is 1080×1920 (9:16) @ 30 fps,
+QuickTime Animation (qtrle) with an alpha channel — roughly 75 MB and ~1 minute of render
+time per clip minute.
 
-What it shows, all animated and synced to the GPX clock:
+## Designs
 
-- **Left stack** — elapsed time, calories (heart-rate based estimate), acceleration
-  (G), distance (km), meters climbed
-- **Follow map** — heading-up rotating mini-map: the route scrolls and rotates under
-  a fixed arrow, route band is white near you fading to grey with distance
-- **Speed ring** — 0–40 km/h gradient sweep
-- **Heart rate ring** — with a heart icon that pulses at your live BPM
-- **Running clock** — local wall-clock time (HH:MM:SS)
+There are two interchangeable designs. Each is its own script; run whichever you want.
+More can be added later as `render_overlay_<name>.py`.
 
-Output: 1080×1920 (9:16) @ 30 fps, QuickTime Animation (qtrle) with alpha channel.
-Roughly 75 MB and ~1 minute of render time per clip minute.
+### `render_overlay.py` — classic (with map)
+
+- **Left stack** — duration, time (clock), acceleration (G), distance (km), climbed (m)
+- **Follow map** — heading-up rotating mini-map: the route scrolls/rotates under a fixed
+  arrow, route band white near you fading to grey with distance
+- **Speed ring** + **heart-rate ring** — translucent glass discs; HR ring has a heart
+  that pulses at your live BPM
+
+Rings and map are lifted up and inset from the edges so they clear the
+TikTok/Reels/Shorts action buttons and caption bar.
+
+### `render_overlay_centered.py` — centered (no map, HR zones)
+
+- **Left stack** — duration, acceleration (G), distance (km), climbed (m), time (12-hour
+  with AM/PM); no separator lines
+- **No map**
+- **Speed ring** + **heart-rate ring** — centered as a pair (side by side, no overlap);
+  the HR ring is coloured by training zone (Z1 grey → Z5 red) with a `ZONE n` label
 
 ## Prerequisites
 
@@ -38,6 +50,9 @@ Windows only (uses the built-in **Bahnschrift** font, included with Windows 10/1
    `FFMPEG_PATH` environment variable at the exe)
 
 ## Usage
+
+Both scripts take the same options — swap `render_overlay.py` for
+`render_overlay_centered.py` to use the other design.
 
 ```
 python render_overlay.py --gpx ride.gpx --start 05:53:00 --end 05:54:00
@@ -92,5 +107,5 @@ already transparent. Do not apply chroma key / background removal.
 
 GPX 1.1 with ~1 Hz trackpoints containing `lat`/`lon`, `<ele>`, `<time>`, and heart
 rate in the Garmin TrackPointExtension (`gpxtpx:hr`) — this is what Strava exports.
-Speed, distance, calories, acceleration, and climb are derived from those. Missing
+Speed, distance, acceleration, climb, and HR zone are derived from those. Missing
 heart rate or elevation default to 0.

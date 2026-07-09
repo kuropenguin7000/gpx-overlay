@@ -166,22 +166,28 @@ HR_MAX = 190.0
 
 # ---------------------------------------------------------------- layout
 MX = 70
-ROWS_Y = [150, 296, 442, 588, 734]
+ROWS_Y = [150, 296, 442, 588, 734]  # DURATION, ACCEL, DIST, CLIMBED, TIME (clock icon)
 
-# rings + map lifted up and pulled in from the edges so they clear the social
-# UI (right-side action buttons, bottom caption) on TikTok/Reels/Shorts
-BIG_C = (620, 1430); BIG_R = 168; BIG_DISC = 148; BIG_AW = 13
-SM_C = (846, 1502); SM_R = 84; SM_DISC = 72; SM_AW = 9
-
-MAP_C = (190, 1350)
-MAP_W2 = 120
-MAP_H2 = 250
-MPP = 6.0
+# speed + HR rings centered horizontally as a pair, separated (no overlap)
+BIG_C = (440, 1450); BIG_R = 168; BIG_DISC = 148; BIG_AW = 13
+SM_C = (726, 1450); SM_R = 84; SM_DISC = 72; SM_AW = 9
 
 BIG_BOX = (BIG_C[0] - BIG_R - 14, BIG_C[1] - BIG_R - 14,
            BIG_C[0] + BIG_R + 14, BIG_C[1] + BIG_R + 14)
 SM_BOX = (SM_C[0] - SM_R - 12, SM_C[1] - SM_R - 12,
           SM_C[0] + SM_R + 12, SM_C[1] + SM_R + 12)
+
+# heart-rate zones (fraction of HR_MAX) -> color + label
+ZONE_FRAC = [0.60, 0.70, 0.80, 0.90]
+ZONE_COL = [(120, 144, 156), (79, 195, 247), (102, 187, 106),
+            (255, 167, 38), (244, 67, 54)]
+
+def hr_zone(bpm):
+    z = 0
+    for th in ZONE_FRAC:
+        if bpm / HR_MAX >= th:
+            z += 1
+    return z
 
 F_VAL = font(60, 520, 96)
 F_UNIT = font(30, 520, 96)
@@ -189,6 +195,7 @@ F_SPD = font(126, 520, 92)
 F_KMH = font(30, 600, 100)
 F_BPM = font(58, 520, 92)
 F_BPMU = font(24, 600, 100)
+F_ZONE = font(28, 700, 100)
 # engagement-overlay fonts (hook caption, day badge, end card)
 F_HOOK = font(48, 640, 100)
 F_DAYB = font(34, 700, 100)
@@ -251,11 +258,10 @@ def build_static():
     s = 2
     img = canvas((W * s, H * s))
     dr = ImageDraw.Draw(img)
-    for y, c in zip(ROWS_Y, ["DURATION", "TIME", "ACCELERATION", "DISTANCE", "CLIMBED"]):
+    for y, c in zip(ROWS_Y, ["DURATION", "ACCELERATION", "DISTANCE", "CLIMBED", "TIME"]):
         dr.text((MX * s + 2, (y + 64) * s + 3), c, font=font(25 * s, 600), fill=SHADOW)
         dr.text((MX * s, (y + 64) * s), c, font=font(25 * s, 600), fill=GRAY)
-        dr.line([MX * s, (y + 106) * s, (MX + 150) * s, (y + 106) * s], fill=DIMGRAY, width=1 * s)
-    # ring discs are drawn per-frame (translucent), not baked into the base
+    # no separator lines in this design; ring discs drawn per-frame (translucent)
     base = img.resize((W, H), Image.LANCZOS)
     return np.asarray(base, dtype=np.uint8)
 
@@ -413,23 +419,6 @@ def main():
     end_sec = max(start_sec + 1, min(end_sec, T - 1))
 
     base = build_static()
-    bigmask, ptsxy = build_bigmap()
-    MASK = capsule_mask()
-    GRADWIN = grad_window()
-
-    # per-second heading (unwrapped, smoothed) for heading-up map rotation
-    head = np.zeros(T)
-    hw = 3
-    last = 0.0
-    for i in range(T):
-        a, b = max(0, i - hw), min(T - 1, i + hw)
-        vx, vy = ptsxy[b, 0] - ptsxy[a, 0], ptsxy[b, 1] - ptsxy[a, 1]
-        if math.hypot(vx, vy) * MPP > 2.0:
-            last = math.degrees(math.atan2(vy, vx))
-        head[i] = last
-    head = np.degrees(np.unwrap(np.radians(head)))
-    head = np.convolve(head, np.ones(9) / 9, mode="same")
-    head[:9] = head[9]; head[-9:] = head[-10]
 
     f0, f1 = int(start_sec * FPS), int(end_sec * FPS)
     nframes = f1 - f0
@@ -440,9 +429,6 @@ def main():
     fdist = np.interp(ft, secs, dist)
     facc = np.interp(ft, secs, acc)
     fclimb = np.interp(ft, secs, climb)
-    fx = np.interp(ft, secs, ptsxy[:, 0])
-    fy = np.interp(ft, secs, ptsxy[:, 1])
-    fhead = np.interp(ft, secs, head)
     all_t = np.arange(0, T, 1.0 / FPS)
     all_phase = np.cumsum(np.interp(all_t, secs, hr) / 60.0 / FPS)
     fphase = np.interp(ft, all_t, all_phase)
@@ -514,17 +500,22 @@ def main():
 
         tsec = int(ft[i])
         clk = START_SEC_LOCAL + tsec
-        # elapsed ride time (DURATION) and real clock time (TIME) side by side
         val_unit(dr, MX, ROWS_Y[0], f"{tsec // 3600}:{tsec % 3600 // 60:02d}:{tsec % 60:02d}", "")
-        val_unit(dr, MX, ROWS_Y[1], f"{clk // 3600 % 24}:{clk % 3600 // 60:02d}:{clk % 60:02d}", "")
         a_g = facc[i]
-        val_unit(dr, MX, ROWS_Y[2], f"{a_g:+.2f}" if abs(a_g) >= 0.005 else "0.00", "G")
-        val_unit(dr, MX, ROWS_Y[3], f"{fdist[i] / 1000:.1f}", "Km")
-        val_unit(dr, MX, ROWS_Y[4], f"{fclimb[i]:.0f}", "M")
+        val_unit(dr, MX, ROWS_Y[1], f"{a_g:+.2f}" if abs(a_g) >= 0.005 else "0.00", "G")
+        val_unit(dr, MX, ROWS_Y[2], f"{fdist[i] / 1000:.1f}", "Km")
+        val_unit(dr, MX, ROWS_Y[3], f"{fclimb[i]:.0f}", "M")
+        # last row: current time of day, 12-hour with AM/PM
+        h24 = clk // 3600 % 24
+        h12 = h24 % 12 or 12
+        val_unit(dr, MX, ROWS_Y[4],
+                 f"{h12}:{clk % 3600 // 60:02d}:{clk % 60:02d}", "AM" if h24 < 12 else "PM")
 
         def paste_ring(patch, xy):
             if ALPHA:
                 img.alpha_composite(patch, dest=xy)
+            elif patch.mode == "RGBA":
+                img.paste(patch, xy, patch)
             else:
                 img.paste(patch, xy)
 
@@ -536,39 +527,24 @@ def main():
         dr.text((BIG_C[0], BIG_C[1] - 22), sv, font=F_SPD, fill=WHITE, anchor="mm")
         dr.text((BIG_C[0], BIG_C[1] + 74), "KM/H", font=F_KMH, fill=GRAY, anchor="mm")
 
+        # HR ring coloured by current zone, with a zone label below
+        z = hr_zone(fhr[i])
+        zc = ZONE_COL[z]
+        zc_dim = tuple(int(c * 0.5) for c in zc)
         sp = ring_patch(SM_BOX, SM_C, SM_DISC, SM_R, SM_AW,
-                        fhr[i] / HR_MAX, RED, ORANGE)
+                        fhr[i] / HR_MAX, zc_dim, zc)
         paste_ring(sp, (SM_BOX[0], SM_BOX[1]))
         bv = f"{fhr[i]:.0f}"
         dr.text((SM_C[0] + 2, SM_C[1] + 7), bv, font=F_BPM, fill=SHADOW, anchor="mm")
         dr.text((SM_C[0], SM_C[1] + 4), bv, font=F_BPM, fill=WHITE, anchor="mm")
         dr.text((SM_C[0], SM_C[1] + 40), "BPM", font=F_BPMU, fill=GRAY, anchor="mm")
+        zlabel = f"ZONE {z + 1}"
+        dr.text((SM_C[0] + 2, SM_C[1] + 111), zlabel, font=F_ZONE, fill=SHADOW, anchor="mm")
+        dr.text((SM_C[0], SM_C[1] + 109), zlabel, font=F_ZONE, fill=zc, anchor="mm")
         p = fphase[i] % 1.0
         hs = int(30 * (1.0 + 0.16 * math.exp(-5.0 * p)))
         hh = HEART.resize((hs, hs), Image.LANCZOS)
         img.paste(hh, (SM_C[0] - hs // 2, SM_C[1] - 52 - hs // 2), hh)
-
-        # heading-up follow-map
-        cx, cy = fx[i], fy[i]
-        R2 = int(math.hypot(MAP_W2, MAP_H2)) + 6
-        rot_deg = 90.0 + fhead[i]
-        winb = bigmask.crop((int(cx) - R2, int(cy) - R2, int(cx) + R2, int(cy) + R2))
-        winr = winb.rotate(rot_deg, resample=Image.BILINEAR)
-        wm = winr.crop((R2 - MAP_W2, R2 - MAP_H2, R2 + MAP_W2, R2 + MAP_H2))
-        img.paste(GRADWIN, (MAP_C[0] - MAP_W2, MAP_C[1] - MAP_H2),
-                  ImageChops.multiply(wm, MASK))
-        a = math.radians(rot_deg)
-        dxv = ptsxy[0, 0] - cx
-        dyv = ptsxy[0, 1] - cy
-        rxv = dxv * math.cos(a) + dyv * math.sin(a)
-        ryv = -dxv * math.sin(a) + dyv * math.cos(a)
-        if ((rxv / (MAP_W2 - 12)) ** 2 + (ryv / (MAP_H2 - 12)) ** 2) < 1:
-            dr.ellipse([MAP_C[0] + rxv - 6, MAP_C[1] + ryv - 6,
-                        MAP_C[0] + rxv + 6, MAP_C[1] + ryv + 6],
-                       fill=LIME, outline=(30, 36, 44), width=2)
-        img.paste(MGLOW, (MAP_C[0] - MGLOW.width // 2, MAP_C[1] - MGLOW.height // 2), MGLOW)
-        arr_s = MARROW.resize((44, 44), Image.LANCZOS)
-        img.paste(arr_s, (MAP_C[0] - 22, MAP_C[1] - 22), arr_s)
 
         # opt-in engagement overlays, composited once on top
         if args.caption or args.day is not None or args.endcard:
@@ -609,10 +585,8 @@ def main():
 
     # intro only when the clip starts at the ride start
     GROUPS = [
-        ((MX - 20, ROWS_Y[0] - 20, MX + 320, ROWS_Y[4] + 110), (-1, 0)),
-        ((MAP_C[0] - MAP_W2 - 30, MAP_C[1] - MAP_H2 - 30,
-          MAP_C[0] + MAP_W2 + 30, MAP_C[1] + MAP_H2 + 30), (-1, 0)),
-        ((BIG_BOX[0], BIG_BOX[1], SM_BOX[2], max(BIG_BOX[3], SM_BOX[3]) + 20), (0, 1)),
+        ((MX - 20, ROWS_Y[0] - 20, MX + 380, ROWS_Y[4] + 110), (-1, 0)),
+        ((BIG_BOX[0], BIG_BOX[1], SM_BOX[2], max(BIG_BOX[3], SM_BOX[3]) + 150), (0, 1)),
     ]
     INTRO_F = int(1.5 * FPS) if (f0 == 0 and not args.no_intro) else 0
 
