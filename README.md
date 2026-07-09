@@ -4,14 +4,6 @@ Animated cycling telemetry overlay generator. Feed it a GPX ride recording and a
 **transparent .mov** you drop straight on top of your footage — no chroma key,
 no keying artifacts.
 
-## Result
-
-The overlay composited over real ride footage:
-
-<p align="center">
-  <img src="assets/result-example.png" width="360" alt="Overlay composited over cycling POV footage">
-</p>
-
 Everything is animated and synced to the GPX clock. Output is 1080×1920 (9:16) @ 30 fps,
 QuickTime Animation (qtrle) with an alpha channel — roughly 75 MB and ~1 minute of render
 time per clip minute.
