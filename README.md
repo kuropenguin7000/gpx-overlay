@@ -32,6 +32,14 @@ TikTok/Reels/Shorts action buttons and caption bar.
 - **Speed ring** + **heart-rate ring** — centered as a pair (side by side, no overlap);
   the HR ring is coloured by training zone (Z1 grey → Z5 red) with a `ZONE n` label
 
+### `render_overlay_retro_analog.py` — retro analog
+
+- Warm paper-cream / dark-brown / red palette, monospace type, hard "sticker" drop shadows
+- **Analog speed dial** with a red needle and rim ticks (0–60 km/h)
+- **Time pill** (12-hour, AM/PM), **DIST / GRADE** pill, and **HEART / ELEV** cards
+- Fields: time, distance, grade, speed, heart rate, elevation
+- Uses the **Consolas** font (bundled with Windows)
+
 ## Prerequisites
 
 Windows only (uses the built-in **Bahnschrift** font, included with Windows 10/11).
